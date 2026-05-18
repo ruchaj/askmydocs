@@ -1,6 +1,6 @@
 anthropic
 streamlit
 pypdf
-chromadb
 sentence-transformers
 python-dotenv
+numpy

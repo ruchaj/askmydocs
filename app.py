@@ -1,46 +1,41 @@
 # ── IMPORTS ──────────────────────────────────────────────────────────────
-# streamlit turns this Python script into a web app
+# streamlit turns this Python script into a web app — no HTML needed
 import streamlit as st
 # anthropic is the official SDK to talk to Claude API
 import anthropic
-# chromadb is our vector database — stores and searches embeddings
-import chromadb
-# json handles converting between Python dicts and JSON text
-import json
-# os lets us read environment variables (our API key)
+# os lets us read environment variables like our API key
 import os
+# numpy is a math library — we use it for vector similarity calculations
+import numpy as np
 # pypdf reads and extracts text from PDF files
 from pypdf import PdfReader
 # sentence_transformers converts text into numerical vectors (embeddings)
+# all-MiniLM-L6-v2 is a small, fast, free model — perfect for this use case
 from sentence_transformers import SentenceTransformer
 # dotenv reads our .env file so our API key stays secret
 from dotenv import load_dotenv
 
 # ── SETUP ─────────────────────────────────────────────────────────────────
-# load the .env file so os.getenv() can find our API key
+# load the .env file so os.getenv() can find ANTHROPIC_API_KEY
 load_dotenv()
 
-# create the Claude client — our connection to the Claude API
-# os.getenv() reads ANTHROPIC_API_KEY from the .env file
+# create the Claude client — our connection to the Anthropic API
+# os.getenv() reads the key from .env so we never hardcode it
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 
-# load the embedding model — this converts text chunks into vectors
-# all-MiniLM-L6-v2 is small, fast, and free — perfect for local use
-# this line runs once when the app starts and is cached by Streamlit
+# load the sentence embedding model
+# this runs once when the app starts — Streamlit caches it automatically
+# it downloads the model on first run (~80MB), then uses the cached version
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
-
-# create an in-memory ChromaDB client
-# in-memory means it resets every time the app restarts — fine for demos
-chroma = chromadb.Client()
 
 
 # ── FUNCTION 1: LOAD AND CHUNK PDF ───────────────────────────────────────
 def load_and_chunk_pdf(uploaded_file, chunk_size=500):
-    # PdfReader opens the PDF and lets us access each page
+    # PdfReader opens the uploaded PDF file
     reader = PdfReader(uploaded_file)
 
-    # extract text from every page and join into one big string
-    # the 'if page.extract_text()' skips blank or image-only pages
+    # loop through every page, extract text, skip blank/image-only pages
+    # join all pages into one long string with spaces between them
     full_text = " ".join(
         page.extract_text() for page in reader.pages if page.extract_text()
     )
@@ -49,229 +44,189 @@ def load_and_chunk_pdf(uploaded_file, chunk_size=500):
     words = full_text.split()
 
     # create overlapping chunks of ~500 words
-    # overlap of 50 words (chunk_size - 50) prevents losing context at boundaries
-    # e.g. if a sentence spans two chunks, the overlap captures it in both
+    # the step is chunk_size - 50 = 450, meaning consecutive chunks
+    # share 50 words of overlap — this prevents losing context at boundaries
+    # example: if a sentence spans the end of chunk 1 and start of chunk 2,
+    # the overlap ensures Claude sees the full sentence in at least one chunk
     chunks = []
     for i in range(0, len(words), chunk_size - 50):
         chunk = " ".join(words[i:i + chunk_size])
-        if chunk:  # skip empty chunks
+        if chunk:  # skip any empty chunks
             chunks.append(chunk)
 
-    return chunks  # returns a list of text strings
+    # returns a list of text strings — e.g. ["first 500 words...", "next 500 words..."]
+    return chunks
 
 
 # ── FUNCTION 2: BUILD VECTOR INDEX ───────────────────────────────────────
 def build_index(chunks):
-    col_name = "documents"
+    # convert all text chunks into embedding vectors using sentence-transformers
+    # embedder.encode() returns a 2D numpy array: shape = (num_chunks, 384)
+    # 384 is the vector dimension of the all-MiniLM-L6-v2 model
+    # each chunk becomes a list of 384 numbers representing its meaning
+    embeddings = embedder.encode(chunks)
 
-    # delete existing collection if it exists (handles re-uploading a new PDF)
-    try:
-        chroma.delete_collection(col_name)
-    except:
-        pass  # if it doesn't exist yet, that's fine — ignore the error
-
-    # create a fresh ChromaDB collection (like a table in a database)
-    collection = chroma.create_collection(col_name)
-
-    # convert all text chunks into embeddings (numerical vectors)
-    # embedder.encode() returns a numpy array — .tolist() converts to plain Python list
-    # this is the most computationally expensive step — takes a few seconds
-    embeddings = embedder.encode(chunks).tolist()
-
-    # store chunks AND their embeddings in ChromaDB
-    # documents = the original text (so we can return it to the user)
-    # embeddings = the vectors (so we can do similarity search)
-    # ids = unique identifier for each chunk (required by ChromaDB)
-    collection.add(
-        documents=chunks,
-        embeddings=embeddings,
-        ids=[f"chunk_{i}" for i in range(len(chunks))]
-    )
-
-    return collection  # return the collection so we can query it later
+    # store both the original text chunks AND their embeddings together
+    # we need chunks to show the user the source text
+    # we need embeddings to do similarity search at query time
+    return {"chunks": chunks, "embeddings": embeddings}
 
 
 # ── FUNCTION 3: ANSWER A QUESTION ────────────────────────────────────────
-def answer_question(question, collection):
+def answer_question(question, index):
     # convert the user's question into an embedding vector
-    # same model as before — so the vector space is compatible
-    q_embedding = embedder.encode([question]).tolist()
+    # [0] gets the first (only) result since we passed a list of one item
+    q_embedding = embedder.encode([question])[0]
 
-    # search ChromaDB for the 3 most similar chunks to the question
-    # this is semantic search — finds meaning, not just keyword matches
-    results = collection.query(
-        query_embeddings=q_embedding,
-        n_results=3  # retrieve top 3 most relevant chunks
+    # retrieve stored embeddings and chunks from our index
+    embeddings = index["embeddings"]
+    chunks = index["chunks"]
+
+    # calculate cosine similarity between the question and every chunk
+    # cosine similarity measures the ANGLE between two vectors
+    # closer to 1.0 = more similar meaning, closer to 0 = unrelated
+    # formula: dot_product / (magnitude_A * magnitude_B)
+    # the + 1e-10 prevents division by zero errors
+    similarities = np.dot(embeddings, q_embedding) / (
+        np.linalg.norm(embeddings, axis=1) * np.linalg.norm(q_embedding) + 1e-10
     )
 
-    # join the 3 retrieved chunks into one context string
-    # results['documents'][0] is a list of the matching text chunks
-    context = "\n\n".join(results['documents'][0])
+    # np.argsort() returns indices sorted from lowest to highest similarity
+    # [-3:] takes the last 3 (the highest similarity scores)
+    # [::-1] reverses to get highest first
+    # result: indices of the 3 most relevant chunks
+    top_3 = np.argsort(similarities)[-3:][::-1]
 
-    # send the context + question to Claude
+    # get the actual text of the top 3 most relevant chunks
+    top_chunks = [chunks[i] for i in top_3]
+
+    # join the 3 chunks into one context string to send to Claude
+    context = "\n\n".join(top_chunks)
+
+    # send the retrieved context + question to Claude
     response = client.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=1024,
 
-        # system prompt tells Claude its role and constraints
-        # "Answer only using the context" prevents hallucination
+        # system prompt defines Claude's role and constraints
+        # "Answer only using the context" is critical — it prevents hallucination
+        # without this constraint, Claude might make up answers not in the document
         system="""You are a helpful assistant that answers questions about documents.
 Answer only using the context provided. If the answer is not in the context,
 say 'I could not find that information in the document.'
 Always be specific and quote relevant parts when helpful.""",
 
-        # messages is the conversation — here just one user turn
-        # we inject the retrieved context + the user's question
+        # inject the retrieved context and question into the user message
+        # this is the RAG pattern: Retrieve → Augment → Generate
         messages=[{
             "role": "user",
             "content": f"Context from document:\n{context}\n\nQuestion: {question}"
         }]
     )
 
-    # return Claude's text answer AND the source chunks (to show the user)
-    return response.content[0].text, results['documents'][0]
+    # return Claude's answer text AND the source chunks
+    # source chunks are shown to the user in the "Source sections used" expander
+    return response.content[0].text, top_chunks
 
 
-# ── STREAMLIT UI ──────────────────────────────────────────────────────────
+# ── CUSTOM CSS ────────────────────────────────────────────────────────────
+# st.markdown with unsafe_allow_html=True lets us inject raw CSS
+# this styles the app with a dark purple gradient theme
+st.markdown("""
+<style>
+    /* dark purple gradient background */
+    .stApp { background: linear-gradient(135deg, #0f0c29, #302b63, #24243e); }
+    /* make all text white so it's readable on dark background */
+    .stApp, .stApp p, .stApp label, .stMarkdown { color: white !important; }
+    /* purple title */
+    h1 { color: #a78bfa !important; font-size: 3rem !important; }
+    /* slightly darker purple for subheadings */
+    h2, h3 { color: #7c3aed !important; }
+    /* styled file upload box with dashed purple border */
+    .stFileUploader { background: rgba(255,255,255,0.05); border: 2px dashed #7c3aed; border-radius: 12px; padding: 1rem; }
+    /* dark chat input with purple border */
+    .stChatInput input { background: rgba(255,255,255,0.1) !important; border: 1px solid #7c3aed !important; color: white !important; border-radius: 20px !important; }
+    /* purple divider line */
+    hr { border-color: #7c3aed !important; opacity: 0.3; }
+    /* light purple caption text */
+    .stCaption { color: #a78bfa !important; }
+</style>
+""", unsafe_allow_html=True)
 
-# configure the browser tab title, icon, and layout
+
+# ── STREAMLIT PAGE CONFIG ─────────────────────────────────────────────────
+# must be the first Streamlit command — sets browser tab title and layout
 st.set_page_config(page_title="AskMyDocs", page_icon="📄", layout="wide")
 
 # render the app header
 st.title("AskMyDocs")
 st.caption("Upload a PDF · Ask questions in plain English · Powered by Claude · Built by Rucha Joshi")
-# custom CSS styling
-st.markdown("""
-<style>
-    /* main background */
-    .stApp {
-        background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
-    }
-
-    /* all text white */
-    .stApp, .stApp p, .stApp label, .stMarkdown {
-        color: white !important;
-    }
-
-    /* title styling */
-    h1 { color: #a78bfa !important; font-size: 3rem !important; }
-    h2, h3 { color: #7c3aed !important; }
-
-    /* file uploader box */
-    .stFileUploader {
-        background: rgba(255,255,255,0.05);
-        border: 2px dashed #7c3aed;
-        border-radius: 12px;
-        padding: 1rem;
-    }
-
-    /* chat input box */
-    .stChatInput input {
-        background: rgba(255,255,255,0.1) !important;
-        border: 1px solid #7c3aed !important;
-        color: white !important;
-        border-radius: 20px !important;
-    }
-
-    /* user chat bubble */
-    .stChatMessage[data-testid="chat-message-user"] {
-        background: rgba(124, 58, 237, 0.3);
-        border-radius: 12px;
-        padding: 0.5rem;
-    }
-
-    /* assistant chat bubble */
-    .stChatMessage[data-testid="chat-message-assistant"] {
-        background: rgba(255,255,255,0.05);
-        border-radius: 12px;
-        padding: 0.5rem;
-    }
-
-    /* success message */
-    .stSuccess {
-        background: rgba(16, 185, 129, 0.2) !important;
-        border: 1px solid #10b981 !important;
-        border-radius: 8px !important;
-        color: #10b981 !important;
-    }
-
-    /* spinner */
-    .stSpinner { color: #a78bfa !important; }
-
-    /* expander */
-    .streamlit-expanderHeader {
-        background: rgba(124, 58, 237, 0.2) !important;
-        border-radius: 8px !important;
-        color: white !important;
-    }
-
-    /* divider */
-    hr { border-color: #7c3aed !important; opacity: 0.3; }
-
-    /* caption text */
-    .stCaption { color: #a78bfa !important; }
-</style>
-""", unsafe_allow_html=True)
 st.divider()
 
+
 # ── SESSION STATE ─────────────────────────────────────────────────────────
-# Streamlit re-runs the entire script on every user interaction
-# st.session_state persists variables across re-runs — like a memory store
-# without this, the collection and chat history would reset on every click
+# Streamlit re-runs the ENTIRE script from top to bottom on every interaction
+# st.session_state is a dictionary that persists across re-runs
+# without session_state, the index and chat history would reset on every click
 
-# collection = the ChromaDB index of the current document
-if "collection" not in st.session_state:
-    st.session_state.collection = None
+# index = our vector index {"chunks": [...], "embeddings": [...]}
+# starts as None — gets populated after a PDF is uploaded
+if "index" not in st.session_state:
+    st.session_state.index = None
 
-# messages = the full chat history (list of {role, content} dicts)
+# messages = full chat history as a list of {"role": "user/assistant", "content": "..."}
+# starts empty — grows as the user asks questions
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# doc_name = tracks which PDF is currently loaded
-# used to detect when the user uploads a NEW document
+# doc_name = filename of currently loaded PDF
+# used to detect when the user uploads a DIFFERENT document
+# prevents re-indexing the same document on every button click
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = None
 
+
 # ── FILE UPLOAD ───────────────────────────────────────────────────────────
-# render the file uploader widget — only accepts PDF files
+# renders the file upload widget — restricts to PDF only
+# returns None if no file uploaded, or a file object if one is selected
 uploaded_file = st.file_uploader("Upload a PDF document", type=["pdf"])
 
-# only re-index if a NEW file is uploaded (different name than current)
-# this prevents re-indexing the same document on every interaction
+# only process if a file is uploaded AND it's different from current document
+# uploaded_file.name != st.session_state.doc_name prevents re-processing
+# the same file every time the user interacts with the app
 if uploaded_file and uploaded_file.name != st.session_state.doc_name:
     with st.spinner("Reading and indexing your document..."):
-        # step 1: extract text and split into chunks
+        # step 1: extract text from PDF and split into overlapping chunks
         chunks = load_and_chunk_pdf(uploaded_file)
-        # step 2: embed chunks and store in ChromaDB
-        st.session_state.collection = build_index(chunks)
-        # step 3: save the filename so we don't re-index unnecessarily
+        # step 2: convert chunks to embeddings and store in our index
+        st.session_state.index = build_index(chunks)
+        # step 3: remember the filename to avoid re-processing
         st.session_state.doc_name = uploaded_file.name
-        # step 4: clear chat history when a new document is loaded
+        # step 4: clear previous chat history when a new doc is loaded
         st.session_state.messages = []
 
-    # show a success message with how many sections were indexed
+    # show success message with chunk count
     st.success(f"Ready! Indexed {len(chunks)} sections from {uploaded_file.name}")
 
+
 # ── CHAT INTERFACE ────────────────────────────────────────────────────────
-# only show the chat if a document has been indexed
-if st.session_state.collection:
+# only show the chat UI after a document has been indexed
+if st.session_state.index:
     st.subheader("Chat with your document")
 
-    # render the full chat history
-    # loops through all previous messages and displays them in order
+    # replay the full chat history so the conversation stays visible
+    # st.chat_message() creates a chat bubble with the role's avatar
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):  # "user" or "assistant"
             st.write(msg["content"])
 
-    # render the chat input box at the bottom of the page
-    # st.chat_input() returns the user's message when they press Enter
+    # render the chat input box — returns the message when user presses Enter
+    # returns None when no message has been typed yet
     question = st.chat_input("Ask a question about your document...")
 
     if question:
-        # add the user's question to chat history
+        # immediately show the user's message in the chat
         st.session_state.messages.append({"role": "user", "content": question})
-
-        # display the user's message immediately
         with st.chat_message("user"):
             st.write(question)
 
@@ -279,32 +234,36 @@ if st.session_state.collection:
         with st.chat_message("assistant"):
             with st.spinner("Thinking..."):
                 try:
-                    # call our answer_question function
-                    # returns Claude's answer + the source chunks used
+                    # call our RAG pipeline:
+                    # 1. embed the question
+                    # 2. find top 3 similar chunks
+                    # 3. send chunks + question to Claude
+                    # 4. return Claude's answer + source chunks
                     answer, sources = answer_question(
-                        question, st.session_state.collection
+                        question, st.session_state.index
                     )
 
-                    # display Claude's answer
+                    # display Claude's answer as the assistant's message
                     st.write(answer)
 
-                    # show the source sections in a collapsible expander
-                    # this shows the user WHERE the answer came from
+                    # show source sections in a collapsible expander
+                    # this builds user trust — they can see WHERE the answer came from
                     with st.expander("Source sections used"):
                         for i, src in enumerate(sources, 1):
+                            # show first 300 chars of each source chunk
                             st.caption(f"Section {i}: {src[:300]}...")
 
-                    # save Claude's answer to chat history
+                    # save Claude's answer to chat history for display on next re-run
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": answer
                     })
 
                 except Exception as e:
-                    # if anything goes wrong, show a friendly error
-                    # e contains the actual error message for debugging
+                    # catch any error (API failure, bad PDF, etc.)
+                    # show friendly message instead of crashing the app
                     st.error(f"Error: {e}")
 
 else:
-    # show a hint if no document is uploaded yet
+    # shown when no document is loaded yet — guides the user
     st.info("Upload a PDF above to get started")
