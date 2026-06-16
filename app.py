@@ -103,6 +103,10 @@ def calculate(expression: str) -> str:
 
 
 def analyze_figure(page_number: int, question: str, page_images: dict) -> str:
+    if page_number not in page_images:
+        valid = sorted(page_images.keys())
+        return (f"Page {page_number} does not exist in this document. "
+                f"Valid page numbers are {valid[0]} to {valid[-1]}. Please try again with a valid page.")
     img_path = page_images[page_number]
     with open(img_path, "rb") as f:
         img_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
@@ -122,13 +126,16 @@ def analyze_figure(page_number: int, question: str, page_images: dict) -> str:
 
 
 def execute_tool(name: str, tool_input: dict, index: dict, page_images: dict[int, str]) -> str:
-    if name == "search_documents":
-        return search_documents(tool_input["query"], index)
-    if name == "calculate":
-        return calculate(tool_input["expression"])
-    if name == "analyze_figure":
-        return analyze_figure(tool_input["page_number"], tool_input["question"], page_images)
-    return f"Unknown tool: {name}"
+    try:
+        if name == "search_documents":
+            return search_documents(tool_input["query"], index)
+        if name == "calculate":
+            return calculate(tool_input["expression"])
+        if name == "analyze_figure":
+            return analyze_figure(tool_input["page_number"], tool_input["question"], page_images)
+        return f"Unknown tool: {name}"
+    except Exception as e:
+        return f"Tool '{name}' encountered an error: {type(e).__name__}: {e}"
 
 
 SYSTEM_PROMPT = (
@@ -145,7 +152,8 @@ SYSTEM_PROMPT = (
 
 
 def run_agent(user_question: str, index: dict, page_images: dict, is_scanned: bool = False) -> str:
-    system = SYSTEM_PROMPT
+    page_count = len(page_images)
+    system = SYSTEM_PROMPT + f" The document has {page_count} page(s); valid page numbers for analyze_figure are 1 to {page_count}."
     if is_scanned:
         system += (
             " IMPORTANT: This PDF is a scanned document with no extractable text. "
@@ -198,7 +206,7 @@ def render_pdf_pages(pdf_path: str) -> dict[int, str]:
 
 
 # ── PAGE CONFIG ───────────────────────────────────────────────────────────
-st.set_page_config(page_title="AskMyDocs", page_icon="📄", layout="wide")
+st.set_page_config(page_title="AskMyDocs", page_icon="📄", layout="centered")
 
 # ── CSS ───────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -482,6 +490,65 @@ header { visibility: hidden; }
 }
 strong, b { color: #111827 !important; }
 
+/* Upload card */
+.upload-card {
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    border-radius: 16px;
+    padding: 2.5rem 2rem 1.75rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04), 0 6px 24px rgba(0,0,0,0.04);
+    text-align: center;
+    margin-bottom: 0.75rem;
+}
+.upload-card-icon { font-size: 2.25rem; margin-bottom: 1rem; }
+.upload-card-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #111827;
+    margin-bottom: 0.35rem;
+}
+.upload-card-sub {
+    font-size: 0.85rem;
+    color: #6b7280;
+    margin-bottom: 1.25rem;
+    line-height: 1.5;
+}
+.caps-row {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 1.25rem;
+}
+
+/* Doc status bar (shown above chat on all devices) */
+.doc-status-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+    padding: 0.6rem 1rem;
+    margin-bottom: 1rem;
+    font-size: 0.82rem;
+    color: #374151;
+    font-weight: 500;
+}
+
+/* Expander (change document) */
+[data-testid="stExpander"] {
+    background: #ffffff !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 10px !important;
+    margin-bottom: 1rem !important;
+}
+[data-testid="stExpander"] summary {
+    font-size: 0.85rem !important;
+    color: #374151 !important;
+    font-weight: 500 !important;
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
 ::-webkit-scrollbar-track { background: #f4f6f8; }
@@ -504,7 +571,30 @@ if "is_scanned" not in st.session_state:
     st.session_state.is_scanned = False
 
 
-# ── SIDEBAR ───────────────────────────────────────────────────────────────
+def process_upload(uploaded_file) -> bool:
+    """Index an uploaded PDF and update session state. Returns True if a new file was loaded."""
+    if not uploaded_file or uploaded_file.name == st.session_state.doc_name:
+        return False
+    with st.spinner("Reading and indexing your document..."):
+        chunks = load_and_chunk_pdf(uploaded_file)
+        is_scanned = len(chunks) == 0
+        st.session_state.is_scanned = is_scanned
+        if is_scanned:
+            chunks = [
+                "[Scanned document — no extractable text. "
+                "Use analyze_figure to read specific pages visually.]"
+            ]
+        st.session_state.index = build_index(chunks)
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp_path = tmp.name
+        st.session_state.page_images = render_pdf_pages(tmp_path)
+        st.session_state.doc_name = uploaded_file.name
+        st.session_state.messages = []
+    return True
+
+
+# ── SIDEBAR — doc info only (desktop bonus; not required on mobile) ────────
 with st.sidebar:
     st.markdown("""
     <div class="sidebar-logo">
@@ -515,42 +605,19 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-    st.markdown('<p class="section-label">Document</p>', unsafe_allow_html=True)
-
-    uploaded_file = st.file_uploader(
-        "PDF",
-        type=["pdf"],
-        label_visibility="collapsed",
-        help="Supports text-based and scanned PDFs.",
-    )
-
-    if uploaded_file and uploaded_file.name != st.session_state.doc_name:
-        with st.spinner("Indexing document..."):
-            chunks = load_and_chunk_pdf(uploaded_file)
-            is_scanned = len(chunks) == 0
-            st.session_state.is_scanned = is_scanned
-            if is_scanned:
-                chunks = [
-                    "[Scanned document — no extractable text. "
-                    "Use analyze_figure to read specific pages visually.]"
-                ]
-            st.session_state.index = build_index(chunks)
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
-                tmp.write(uploaded_file.getvalue())
-                tmp_path = tmp.name
-            st.session_state.page_images = render_pdf_pages(tmp_path)
-            st.session_state.doc_name = uploaded_file.name
-            st.session_state.messages = []
-
     if st.session_state.doc_name:
         page_count = len(st.session_state.page_images)
-        if st.session_state.is_scanned:
-            badge = '<span class="doc-badge doc-badge-scanned">Scanned PDF</span>'
-            note = '<div class="doc-scanned-note">Visual analysis mode — text search unavailable</div>'
-        else:
-            badge = '<span class="doc-badge doc-badge-text">Text PDF</span>'
-            note = ""
+        badge = (
+            '<span class="doc-badge doc-badge-scanned">Scanned PDF</span>'
+            if st.session_state.is_scanned
+            else '<span class="doc-badge doc-badge-text">Text PDF</span>'
+        )
+        note = (
+            '<div class="doc-scanned-note">Visual analysis mode — text search unavailable</div>'
+            if st.session_state.is_scanned else ""
+        )
         st.markdown(f"""
+        <p class="section-label">Document</p>
         <div class="doc-card">
             <div class="doc-card-name">📄 {st.session_state.doc_name}</div>
             <div class="doc-card-meta">{badge}&nbsp;&nbsp;{page_count} pages</div>
@@ -571,7 +638,7 @@ with st.sidebar:
     st.markdown("""
     <div class="sidebar-footer">
         Built by Rucha Joshi<br>
-        <span style="opacity:0.45;">Powered by Claude Sonnet 4.6</span>
+        <span style="opacity:0.6;">Powered by Claude Sonnet 4.6</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -587,11 +654,66 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-if st.session_state.index:
+if not st.session_state.index:
+    # ── UPLOAD STATE: prominent upload card, works on all screen sizes ────
+    st.markdown("""
+    <div class="upload-card">
+        <div class="upload-card-icon">📄</div>
+        <div class="upload-card-title">Upload a document to get started</div>
+        <div class="upload-card-sub">Supports text-based and scanned PDFs · Up to 200 MB</div>
+        <div class="caps-row">
+            <span class="cap-pill">🔍 Semantic search</span>
+            <span class="cap-pill">🧮 Calculator</span>
+            <span class="cap-pill">🌐 Web search</span>
+            <span class="cap-pill">👁️ Vision</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    uploaded_file = st.file_uploader(
+        "PDF",
+        type=["pdf"],
+        key="uploader",
+        label_visibility="collapsed",
+        help="Drag and drop or click Browse. Supports text-based and scanned PDFs.",
+    )
+    if process_upload(uploaded_file):
+        st.rerun()
+
+else:
+    # ── CHAT STATE ────────────────────────────────────────────────────────
+
+    # Doc status bar — visible on all devices (mobile has no sidebar)
+    page_count = len(st.session_state.page_images)
+    badge_html = (
+        '<span class="doc-badge doc-badge-scanned">Scanned</span>'
+        if st.session_state.is_scanned
+        else '<span class="doc-badge doc-badge-text">Text PDF</span>'
+    )
+    st.markdown(f"""
+    <div class="doc-status-bar">
+        📄 {st.session_state.doc_name}&nbsp;&nbsp;{badge_html}&nbsp;&nbsp;
+        <span style="color:#9ca3af;">{page_count} pages</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Change document — collapsed by default, always accessible on mobile
+    with st.expander("Upload a different document"):
+        new_file = st.file_uploader(
+            "PDF",
+            type=["pdf"],
+            key="uploader_change",
+            label_visibility="collapsed",
+        )
+        if process_upload(new_file):
+            st.rerun()
+
+    # Chat history
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"].replace("$", r"\$"))
 
+    # Chat input
     question = st.chat_input("Ask a question about your document...")
 
     if question:
@@ -612,12 +734,3 @@ if st.session_state.index:
                     st.session_state.messages.append({"role": "assistant", "content": answer})
                 except Exception as e:
                     st.error(f"Error: {e}")
-
-else:
-    st.markdown("""
-    <div class="empty-state">
-        <div class="empty-icon">📋</div>
-        <div class="empty-title">No document loaded</div>
-        <div class="empty-sub">Upload a PDF from the sidebar to start asking questions about it</div>
-    </div>
-    """, unsafe_allow_html=True)
