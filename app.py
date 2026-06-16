@@ -145,13 +145,14 @@ def analyze_figure(page_number: int, question: str, page_images: dict) -> str:
     with open(img_path, "rb") as f:
         img_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
 
+    media_type = "image/jpeg" if img_path.endswith(".jpg") else "image/png"
     vision_response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=1000,
         messages=[{
             "role": "user",
             "content": [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": img_b64}},
                 {"type": "text", "text": f"This is page {page_number} of a document. {question}"}
             ]
         }]
@@ -227,8 +228,11 @@ def render_pdf_pages(pdf_path: str) -> dict[int, str]:
     doc = fitz.open(pdf_path)
     page_images = {}
     for i, page in enumerate(doc, start=1):
-        pix = page.get_pixmap(dpi=150)   # 150 dpi is a good readability/size balance
-        path = f"{out_dir}/page_{i}.png"
+        pix = page.get_pixmap(dpi=100)
+        # if an unusually large page still exceeds ~1500px wide, scale it down
+        if pix.width > 1500:
+            pix = page.get_pixmap(dpi=int(100 * 1500 / pix.width))
+        path = f"{out_dir}/page_{i}.jpg"
         pix.save(path)
         page_images[i] = path
     return page_images
