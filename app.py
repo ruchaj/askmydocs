@@ -144,7 +144,7 @@ def analyze_figure(page_number: int, question: str, page_images: dict) -> str:
         img_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
 
     vision_response = client.messages.create(
-        model="claude-sonnet-4-20250514",
+        model="claude-sonnet-4-6",
         max_tokens=1000,
         messages=[{
             "role": "user",
