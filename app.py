@@ -4,6 +4,7 @@ import os
 import base64
 import tempfile
 import datetime
+import urllib.parse
 import numpy as np
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
@@ -610,20 +611,30 @@ strong, b { color: #111827 !important; }
     border-color: #fda4af !important;
 }
 
-/* Download button */
-[data-testid="stDownloadButton"] button {
-    background: #f9fafb !important;
-    border: 1px solid #e5e7eb !important;
-    color: #374151 !important;
-    border-radius: 8px !important;
-    font-size: 0.8rem !important;
-    font-weight: 500 !important;
-    padding: 0.35rem 0.75rem !important;
-    white-space: nowrap !important;
+/* Floating download icon */
+.download-fab {
+    position: fixed;
+    right: 1.75rem;
+    bottom: 5.5rem;
+    width: 44px;
+    height: 44px;
+    background: #ffffff;
+    border: 1.5px solid #e5e7eb;
+    border-radius: 50%;
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.10);
+    z-index: 999;
+    text-decoration: none !important;
+    color: #6b7280;
+    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-[data-testid="stDownloadButton"] button:hover {
-    background: #f1f5f9 !important;
-    border-color: #cbd5e1 !important;
+.download-fab:hover {
+    box-shadow: 0 4px 18px rgba(0,0,0,0.14);
+    transform: translateY(-2px);
+    border-color: #1d4ed8;
+    color: #1d4ed8;
 }
 
 /* Scrollbar */
@@ -830,12 +841,19 @@ if has_docs:
     if st.session_state.messages:
         conv_md = format_conversation_md()
         fname = f"askmydocs_{datetime.date.today().isoformat()}.md"
-        st.download_button(
-            "⬇ Download conversation",
-            data=conv_md,
-            file_name=fname,
-            mime="text/markdown",
-        )
+        # encode the conversation as a data URI so the icon is a real download link
+        data_uri = "data:text/markdown;charset=utf-8," + urllib.parse.quote(conv_md)
+        st.markdown(f"""
+        <a class="download-fab" href="{data_uri}" download="{fname}"
+           title="Download conversation">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+        </a>
+        """, unsafe_allow_html=True)
 
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
