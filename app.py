@@ -29,6 +29,30 @@ client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 embedder = SentenceTransformer('all-MiniLM-L6-v2')
 
 
+tools = [
+    {
+        "name": "search_documents",
+        "description": "Search the uploaded PDF text for passages relevant to a query using semantic vector search. Use this whenever the answer might be in the document's text. You can call it multiple times with different queries to gather more context.",
+        "input_schema":{
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "The search query to find relevant document passages"}
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "calculate",
+        "description": "Evaluate a mathematical expression. Use this for any arithmetic rather than doing math yourself.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "expression": {"type": "string", "description": "A math expression, e.g. '1250 * 0.08'"}
+            },
+            "required": ["expression"]
+        }
+    }
+]
 # ── FUNCTION 1: LOAD AND CHUNK PDF ───────────────────────────────────────
 def load_and_chunk_pdf(uploaded_file, chunk_size=500):
     # PdfReader opens the uploaded PDF file
@@ -72,62 +96,68 @@ def build_index(chunks):
     return {"chunks": chunks, "embeddings": embeddings}
 
 
-# ── FUNCTION 3: ANSWER A QUESTION ────────────────────────────────────────
-def answer_question(question, index):
-    # convert the user's question into an embedding vector
-    # [0] gets the first (only) result since we passed a list of one item
-    q_embedding = embedder.encode([question])[0]
-
-    # retrieve stored embeddings and chunks from our index
+# search_documents = It takes the same `index` dict that build_index() returns
+# and returns the joined context string — it does NOT call Claude.
+def search_documents(query: str, index: dict) -> str:
+    q_embedding = embedder.encode([query])[0]
     embeddings = index["embeddings"]
     chunks = index["chunks"]
 
-    # calculate cosine similarity between the question and every chunk
-    # cosine similarity measures the ANGLE between two vectors
-    # closer to 1.0 = more similar meaning, closer to 0 = unrelated
-    # formula: dot_product / (magnitude_A * magnitude_B)
-    # the + 1e-10 prevents division by zero errors
+    # identical cosine-similarity math from your answer_question()
     similarities = np.dot(embeddings, q_embedding) / (
         np.linalg.norm(embeddings, axis=1) * np.linalg.norm(q_embedding) + 1e-10
     )
-
-    # np.argsort() returns indices sorted from lowest to highest similarity
-    # [-3:] takes the last 3 (the highest similarity scores)
-    # [::-1] reverses to get highest first
-    # result: indices of the 3 most relevant chunks
     top_3 = np.argsort(similarities)[-3:][::-1]
-
-    # get the actual text of the top 3 most relevant chunks
     top_chunks = [chunks[i] for i in top_3]
 
-    # join the 3 chunks into one context string to send to Claude
-    context = "\n\n".join(top_chunks)
+    return "\n\n".join(top_chunks)
 
-    # send the retrieved context + question to Claude
-    response = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=1024,
+def calculate(expression: str) -> str:
+    allowed = {"__builtins__": {}}
+    try:
+        return str(eval(expression, allowed, {}))   # note in README you'd harden this
+    except Exception as e:
+        return f"Error: {e}"
 
-        # system prompt defines Claude's role and constraints
-        # "Answer only using the context" is critical — it prevents hallucination
-        # without this constraint, Claude might make up answers not in the document
-        system="""You are a helpful assistant that answers questions about documents.
-Answer only using the context provided. If the answer is not in the context,
-say 'I could not find that information in the document.'
-Always be specific and quote relevant parts when helpful.""",
+# The dispatcher takes `index` so search_documents can reach the embeddings.
+# `index` is built once at upload via load_and_chunk_pdf() -> build_index().
+def execute_tool(name: str, tool_input: dict, index: dict) -> str:
+    if name == "search_documents":
+        return search_documents(tool_input["query"], index)
+    if name == "calculate":
+        return calculate(tool_input["expression"])
+    return f"Unknown tool: {name}"
 
-        # inject the retrieved context and question into the user message
-        # this is the RAG pattern: Retrieve → Augment → Generate
-        messages=[{
-            "role": "user",
-            "content": f"Context from document:\n{context}\n\nQuestion: {question}"
-        }]
-    )
 
-    # return Claude's answer text AND the source chunks
-    # source chunks are shown to the user in the "Source sections used" expander
-    return response.content[0].text, top_chunks
+def run_agent(user_question: str, index: dict) -> str:
+    messages = [{"role": "user", "content": user_question}]
+    while True:
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1500,
+            tools=tools,
+            messages=messages
+        )
+        if response.stop_reason != "tool_use":
+            return "".join(b.text for b in response.content if b.type == "text")
 
+        # Claude wants tools — append its turn FIRST
+        messages.append({"role": "assistant", "content": response.content})
+        tool_results = []
+        for block in response.content:
+            if block.type == "tool_use":
+                result = execute_tool(block.name, block.input, index)
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,    # MUST match the id from the call
+                    "content": result,
+                })
+
+        messages.append({"role": "user", "content": tool_results})
+
+# ── STREAMLIT PAGE CONFIG ─────────────────────────────────────────────────
+# must be the first Streamlit command — sets browser tab title and layout
+st.set_page_config(page_title="AskMyDocs", page_icon="📄", layout="wide")
 
 # ── CUSTOM CSS ────────────────────────────────────────────────────────────
 # st.markdown with unsafe_allow_html=True lets us inject raw CSS
@@ -153,10 +183,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-
-# ── STREAMLIT PAGE CONFIG ─────────────────────────────────────────────────
-# must be the first Streamlit command — sets browser tab title and layout
-st.set_page_config(page_title="AskMyDocs", page_icon="📄", layout="wide")
 
 # render the app header
 st.title("AskMyDocs")
@@ -239,19 +265,12 @@ if st.session_state.index:
                     # 2. find top 3 similar chunks
                     # 3. send chunks + question to Claude
                     # 4. return Claude's answer + source chunks
-                    answer, sources = answer_question(
+                    answer = run_agent(
                         question, st.session_state.index
                     )
 
                     # display Claude's answer as the assistant's message
                     st.write(answer)
-
-                    # show source sections in a collapsible expander
-                    # this builds user trust — they can see WHERE the answer came from
-                    with st.expander("Source sections used"):
-                        for i, src in enumerate(sources, 1):
-                            # show first 300 chars of each source chunk
-                            st.caption(f"Section {i}: {src[:300]}...")
 
                     # save Claude's answer to chat history for display on next re-run
                     st.session_state.messages.append({
