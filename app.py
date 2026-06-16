@@ -56,7 +56,7 @@ tools = [
         }
     },
     {
-        "type": "web_search_20260209",   # confirm the current version string in the docs
+        "type": "web_search_20260209",
         "name": "web_search"
     },
     {
@@ -74,16 +74,18 @@ tools = [
 ]
 # ── FUNCTION 1: LOAD AND CHUNK PDF ───────────────────────────────────────
 def load_and_chunk_pdf(uploaded_file, chunk_size=500):
-    # PdfReader opens the uploaded PDF file
     reader = PdfReader(uploaded_file)
-
-    # loop through every page, extract text, skip blank/image-only pages
-    # join all pages into one long string with spaces between them
     full_text = " ".join(
         page.extract_text() for page in reader.pages if page.extract_text()
     )
 
-    # split the full text into individual words
+    # PyMuPDF fallback — handles compressed/malformed text streams that pypdf misses
+    if not full_text.strip():
+        doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
+        full_text = " ".join(
+            page.get_text() for page in doc if page.get_text().strip()
+        )
+
     words = full_text.split()
 
     # create overlapping chunks of ~500 words
@@ -168,12 +170,32 @@ def execute_tool(name: str, tool_input: dict, index: dict, page_images: dict[int
     return f"Unknown tool: {name}"
 
 
-def run_agent(user_question: str, index: dict, page_images: dict) -> str:
+SYSTEM_PROMPT = (
+    "You are a document analyst with access to four tools: "
+    "search_documents (semantic search over the uploaded PDF), "
+    "calculate (arithmetic), "
+    "web_search (live internet search — use this whenever the question asks about current events, "
+    "real-time data, recent figures, or anything that may have changed after the document was written), "
+    "and analyze_figure (vision analysis of a specific page — use only for questions about charts, "
+    "graphs, or images that text search cannot answer). "
+    "Always search the document first. If the document does not contain the answer and the question "
+    "involves current or recent information, use web_search."
+)
+
+def run_agent(user_question: str, index: dict, page_images: dict, is_scanned: bool = False) -> str:
+    system = SYSTEM_PROMPT
+    if is_scanned:
+        system += (
+            " IMPORTANT: This PDF is a scanned document with no extractable text. "
+            "The search_documents tool will not return useful content — skip it and go straight to "
+            "analyze_figure to read the relevant page(s) visually."
+        )
     messages = [{"role": "user", "content": user_question}]
     while True:
         response = client.messages.create(
             model="claude-sonnet-4-6",
-            max_tokens=1500,
+            max_tokens=4096,
+            system=system,
             tools=tools,
             messages=messages
         )
@@ -271,38 +293,68 @@ if "doc_name" not in st.session_state:
 if "page_images" not in st.session_state:
     st.session_state.page_images = {}
 
+if "is_scanned" not in st.session_state:
+    st.session_state.is_scanned = False
+
+if "upload_status" not in st.session_state:
+    st.session_state.upload_status = None  # ("success"|"warning", message)
+
 
 # ── FILE UPLOAD ───────────────────────────────────────────────────────────
-# renders the file upload widget — restricts to PDF only
-# returns None if no file uploaded, or a file object if one is selected
-uploaded_file = st.file_uploader("Upload a PDF document", type=["pdf"])
+st.markdown("**Step 1 — Upload your PDF** (text-based or scanned)")
+uploaded_file = st.file_uploader(
+    "Drag and drop a PDF here, or click Browse files",
+    type=["pdf"],
+    help="Supports text PDFs and scanned documents. Scanned PDFs will use visual page analysis instead of text search.",
+)
 
-# only process if a file is uploaded AND it's different from current document
-# uploaded_file.name != st.session_state.doc_name prevents re-processing
-# the same file every time the user interacts with the app
 if uploaded_file and uploaded_file.name != st.session_state.doc_name:
-    with st.spinner("Reading and indexing your document..."):
-        # step 1: extract text from PDF and split into overlapping chunks
+    with st.spinner(f"Reading {uploaded_file.name}..."):
         chunks = load_and_chunk_pdf(uploaded_file)
-        # step 2: convert chunks to embeddings and store in our index
+        is_scanned = len(chunks) == 0
+        st.session_state.is_scanned = is_scanned
+
+        if is_scanned:
+            # build a minimal index so the agent loop still works;
+            # search_documents will return this message and Claude will pivot to analyze_figure
+            chunks = ["[This PDF contains no extractable text — it is a scanned document. "
+                      "Use the analyze_figure tool to read specific pages visually.]"]
+
         st.session_state.index = build_index(chunks)
-        # step 3: render pages to PNGs — fitz needs a real file path, not a file object
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
             tmp.write(uploaded_file.getvalue())
             tmp_path = tmp.name
         st.session_state.page_images = render_pdf_pages(tmp_path)
-        # step 4: remember the filename to avoid re-processing
         st.session_state.doc_name = uploaded_file.name
-        # step 5: clear previous chat history when a new doc is loaded
         st.session_state.messages = []
 
-    # show success message with chunk count
-    st.success(f"Ready! Indexed {len(chunks)} sections from {uploaded_file.name}")
+        if is_scanned:
+            st.session_state.upload_status = (
+                "warning",
+                f"**{uploaded_file.name}** loaded ({len(st.session_state.page_images)} pages). "
+                "No text layer detected — this looks like a scanned PDF. "
+                "Ask questions about specific pages or figures; Claude will analyze them visually.",
+            )
+        else:
+            st.session_state.upload_status = (
+                "success",
+                f"**{uploaded_file.name}** ready — {len(chunks)} sections indexed. "
+                "Step 2: type your question below.",
+            )
+
+# show persistent status so it survives re-runs triggered by the chat input
+if st.session_state.upload_status:
+    kind, msg = st.session_state.upload_status
+    if kind == "success":
+        st.success(msg)
+    else:
+        st.warning(msg)
 
 
 # ── CHAT INTERFACE ────────────────────────────────────────────────────────
-# only show the chat UI after a document has been indexed
 if st.session_state.index:
+    st.markdown("**Step 2 — Ask a question**")
     st.subheader("Chat with your document")
 
     # replay the full chat history so the conversation stays visible
@@ -331,11 +383,15 @@ if st.session_state.index:
                     # 3. send chunks + question to Claude
                     # 4. return Claude's answer + source chunks
                     answer = run_agent(
-                        question, st.session_state.index, st.session_state.page_images
+                        question,
+                        st.session_state.index,
+                        st.session_state.page_images,
+                        is_scanned=st.session_state.is_scanned,
                     )
 
                     # display Claude's answer as the assistant's message
-                    st.write(answer)
+                    # escape $ so Streamlit doesn't interpret dollar amounts as LaTeX math
+                    st.markdown(answer.replace("$", r"\$"))
 
                     # save Claude's answer to chat history for display on next re-run
                     st.session_state.messages.append({
@@ -349,5 +405,4 @@ if st.session_state.index:
                     st.error(f"Error: {e}")
 
 else:
-    # shown when no document is loaded yet — guides the user
-    st.info("Upload a PDF above to get started")
+    st.info("Upload a PDF above (Step 1) to get started. The chat will appear here once your document is ready.")
