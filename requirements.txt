@@ -1,6 +1,7 @@
 anthropic
 streamlit
 pypdf
+pymupdf
 sentence-transformers
 python-dotenv
 numpy

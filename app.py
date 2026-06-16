@@ -5,6 +5,8 @@ import streamlit as st
 import anthropic
 # os lets us read environment variables like our API key
 import os
+import base64
+import tempfile
 # numpy is a math library — we use it for vector similarity calculations
 import numpy as np
 # pypdf reads and extracts text from PDF files
@@ -14,6 +16,7 @@ from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
 # dotenv reads our .env file so our API key stays secret
 from dotenv import load_dotenv
+import fitz
 
 # ── SETUP ─────────────────────────────────────────────────────────────────
 # load the .env file so os.getenv() can find ANTHROPIC_API_KEY
@@ -51,7 +54,23 @@ tools = [
             },
             "required": ["expression"]
         }
+    },
+    {
+        "type": "web_search_20260209",   # confirm the current version string in the docs
+        "name": "web_search"
+    },
+    {
+    "name": "analyze_figure",
+    "description": "Visually analyze a specific page of the document to interpret charts, figures, diagrams, tables, or images. ONLY use this when the user's question is about a visual element (a chart, graph, figure, diagram, or image) that text search cannot answer. Do not use it for ordinary text questions.",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "page_number": {"type": "integer", "description": "The 1-based page number containing the figure to analyze"},
+            "question": {"type": "string", "description": "What to determine from the figure, e.g. 'What trend does this chart show?'"}
+        },
+        "required": ["page_number", "question"]
     }
+}
 ]
 # ── FUNCTION 1: LOAD AND CHUNK PDF ───────────────────────────────────────
 def load_and_chunk_pdf(uploaded_file, chunk_size=500):
@@ -119,13 +138,33 @@ def calculate(expression: str) -> str:
     except Exception as e:
         return f"Error: {e}"
 
+def analyze_figure(page_number: int, question: str, page_images: dict) -> str:
+    img_path = page_images[page_number]
+    with open(img_path, "rb") as f:
+        img_b64 = base64.standard_b64encode(f.read()).decode("utf-8")
+
+    vision_response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=1000,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_b64}},
+                {"type": "text", "text": f"This is page {page_number} of a document. {question}"}
+            ]
+        }]
+    )
+    return "".join(b.text for b in vision_response.content if b.type == "text")
+
 # The dispatcher takes `index` so search_documents can reach the embeddings.
 # `index` is built once at upload via load_and_chunk_pdf() -> build_index().
-def execute_tool(name: str, tool_input: dict, index: dict) -> str:
+def execute_tool(name: str, tool_input: dict, index: dict, page_images: dict[int, str]) -> str:
     if name == "search_documents":
         return search_documents(tool_input["query"], index)
     if name == "calculate":
         return calculate(tool_input["expression"])
+    if name == "analyze_figure":
+        return analyze_figure(tool_input["page_number"], tool_input["question"], page_images)
     return f"Unknown tool: {name}"
 
 
@@ -138,6 +177,12 @@ def run_agent(user_question: str, index: dict) -> str:
             tools=tools,
             messages=messages
         )
+        for block in response.content:
+            if block.type == "text" and block.text.strip():
+                print(f"[reasoning] {block.text}")
+            if block.type == "tool_use":
+                print(f"[tool] {block.name} <- {block.input}")
+
         if response.stop_reason != "tool_use":
             return "".join(b.text for b in response.content if b.type == "text")
 
@@ -154,6 +199,18 @@ def run_agent(user_question: str, index: dict) -> str:
                 })
 
         messages.append({"role": "user", "content": tool_results})
+
+def render_pdf_pages(pdf_path: str) -> dict[int, str]:
+    out_dir = tempfile.mkdtemp()
+    doc = fitz.open(pdf_path)
+    page_images = {}
+    for i, page in enumerate(doc, start=1):
+        pix = page.get_pixmap(dpi=150)   # 150 dpi is a good readability/size balance
+        path = f"{out_dir}/page_{i}.png"
+        pix.save(path)
+        page_images[i] = path
+    return page_images
+
 
 # ── STREAMLIT PAGE CONFIG ─────────────────────────────────────────────────
 # must be the first Streamlit command — sets browser tab title and layout
