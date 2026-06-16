@@ -206,7 +206,7 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
 html, body, [class*="css"], .stApp, button, input, textarea {
-    font-family: 'Inter', -apple-system, sans-serif !important;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif !important;
 }
 
 /* Hide Streamlit chrome */
@@ -216,15 +216,16 @@ header { visibility: hidden; }
 [data-testid="stToolbar"] { display: none !important; }
 [data-testid="stDecoration"] { display: none !important; }
 
-/* App background */
+/* App background — light warm gray */
 .stApp {
-    background: #07070f;
+    background: #f4f6f8;
 }
 
 /* ── SIDEBAR ── */
 [data-testid="stSidebar"] {
-    background: #0c0c18 !important;
-    border-right: 1px solid rgba(124, 58, 237, 0.12) !important;
+    background: #ffffff !important;
+    border-right: 1px solid #dde1e7 !important;
+    box-shadow: 2px 0 8px rgba(0, 0, 0, 0.04) !important;
 }
 [data-testid="stSidebarContent"] {
     background: transparent !important;
@@ -237,46 +238,45 @@ header { visibility: hidden; }
     align-items: center;
     gap: 0.75rem;
     padding-bottom: 1.5rem;
-    border-bottom: 1px solid rgba(124, 58, 237, 0.1);
+    border-bottom: 1px solid #eaedf0;
     margin-bottom: 0.25rem;
 }
 .sidebar-logo-icon {
     width: 38px;
     height: 38px;
-    background: linear-gradient(135deg, #6d28d9, #a78bfa);
-    border-radius: 10px;
+    background: #1d4ed8;
+    border-radius: 9px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 18px;
-    box-shadow: 0 4px 16px rgba(109, 40, 217, 0.4);
+    box-shadow: 0 2px 8px rgba(29, 78, 216, 0.3);
     flex-shrink: 0;
 }
 .sidebar-logo-text {
     font-size: 1.05rem;
     font-weight: 700;
-    color: #e4e4f0;
+    color: #111827;
     letter-spacing: -0.02em;
 }
 .sidebar-logo-badge {
     font-size: 0.58rem;
     font-weight: 600;
-    color: #a78bfa;
-    background: rgba(124, 58, 237, 0.15);
-    border: 1px solid rgba(124, 58, 237, 0.25);
+    color: #1d4ed8;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
     padding: 1px 5px;
     border-radius: 4px;
     margin-left: 5px;
     vertical-align: middle;
-    letter-spacing: 0;
 }
 
 /* Section labels */
 .section-label {
-    font-size: 0.6rem !important;
+    font-size: 0.62rem !important;
     font-weight: 700 !important;
-    letter-spacing: 0.12em !important;
-    color: #3d3d58 !important;
+    letter-spacing: 0.1em !important;
+    color: #9ca3af !important;
     text-transform: uppercase !important;
     margin: 1.4rem 0 0.6rem !important;
     padding: 0 !important;
@@ -284,16 +284,16 @@ header { visibility: hidden; }
 
 /* Document card */
 .doc-card {
-    background: rgba(124, 58, 237, 0.06);
-    border: 1px solid rgba(124, 58, 237, 0.16);
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
     border-radius: 10px;
     padding: 0.9rem 1rem;
     margin-top: 0.4rem;
 }
 .doc-card-name {
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     font-weight: 600;
-    color: #cccce0;
+    color: #111827;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -304,7 +304,7 @@ header { visibility: hidden; }
     align-items: center;
     gap: 0.5rem;
     font-size: 0.72rem;
-    color: #5a5a78;
+    color: #6b7280;
 }
 .doc-badge {
     font-size: 0.66rem;
@@ -314,14 +314,14 @@ header { visibility: hidden; }
     white-space: nowrap;
 }
 .doc-badge-text {
-    background: rgba(16, 185, 129, 0.09);
-    color: #34d399;
-    border: 1px solid rgba(16, 185, 129, 0.18);
+    background: #dcfce7;
+    color: #166534;
+    border: 1px solid #bbf7d0;
 }
 .doc-badge-scanned {
-    background: rgba(245, 158, 11, 0.09);
-    color: #fbbf24;
-    border: 1px solid rgba(245, 158, 11, 0.18);
+    background: #fef9c3;
+    color: #854d0e;
+    border: 1px solid #fde047;
 }
 .doc-scanned-note {
     font-size: 0.7rem;
@@ -341,40 +341,39 @@ header { visibility: hidden; }
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    background: rgba(255, 255, 255, 0.03);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
     border-radius: 20px;
-    padding: 3px 9px;
-    font-size: 0.68rem;
-    color: #44445e;
+    padding: 3px 10px;
+    font-size: 0.69rem;
+    color: #6b7280;
 }
 
 /* Sidebar footer */
 .sidebar-footer {
     margin-top: 3rem;
     padding-top: 1.25rem;
-    border-top: 1px solid rgba(124, 58, 237, 0.08);
+    border-top: 1px solid #eaedf0;
     font-size: 0.7rem;
-    color: #2e2e46;
+    color: #9ca3af;
     line-height: 1.7;
 }
 
 /* File uploader */
 [data-testid="stFileUploader"] {
-    background: rgba(124, 58, 237, 0.04) !important;
-    border: 1.5px dashed rgba(124, 58, 237, 0.28) !important;
+    background: #f9fafb !important;
+    border: 1.5px dashed #d1d5db !important;
     border-radius: 12px !important;
     transition: all 0.2s ease !important;
 }
 [data-testid="stFileUploader"]:hover {
-    border-color: rgba(167, 139, 250, 0.5) !important;
-    background: rgba(124, 58, 237, 0.07) !important;
+    border-color: #1d4ed8 !important;
+    background: #eff6ff !important;
 }
 [data-testid="stFileUploaderDropzoneInstructions"] {
-    color: #3a3a56 !important;
+    color: #9ca3af !important;
     font-size: 0.78rem !important;
 }
-[data-testid="stFileUploader"] svg { opacity: 0.35; }
 
 /* ── MAIN AREA ── */
 .main-header {
@@ -385,25 +384,25 @@ header { visibility: hidden; }
     font-size: 2.6rem;
     font-weight: 800;
     letter-spacing: -0.045em;
-    background: linear-gradient(135deg, #c4b5fd 0%, #8b5cf6 45%, #6d28d9 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    color: #111827;
     line-height: 1.1;
     margin-bottom: 0.55rem;
 }
+.main-title .accent {
+    color: #1d4ed8;
+}
 .main-subtitle {
-    font-size: 0.9rem;
-    color: #2e2e48;
+    font-size: 0.95rem;
+    color: #6b7280;
     font-weight: 400;
-    line-height: 1.5;
+    line-height: 1.6;
     max-width: 480px;
     margin: 0 auto;
 }
 .main-divider {
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(124,58,237,0.15), transparent);
-    margin: 1.5rem 0 0;
+    background: #e5e7eb;
+    margin: 1.75rem 0 0;
 }
 
 /* Empty state */
@@ -415,20 +414,20 @@ header { visibility: hidden; }
     text-align: center;
 }
 .empty-icon {
-    font-size: 2.25rem;
+    font-size: 2.5rem;
     margin-bottom: 1.25rem;
-    opacity: 0.15;
+    opacity: 0.3;
 }
 .empty-title {
-    font-size: 0.95rem;
+    font-size: 1rem;
     font-weight: 600;
-    color: #2a2a42;
-    margin-bottom: 0.35rem;
+    color: #374151;
+    margin-bottom: 0.4rem;
 }
 .empty-sub {
-    font-size: 0.8rem;
-    color: #1e1e34;
-    max-width: 240px;
+    font-size: 0.85rem;
+    color: #9ca3af;
+    max-width: 260px;
     line-height: 1.55;
 }
 
@@ -441,51 +440,53 @@ header { visibility: hidden; }
 
 /* Chat input */
 [data-testid="stChatInput"] {
-    background: rgba(255, 255, 255, 0.025) !important;
-    border: 1px solid rgba(124, 58, 237, 0.22) !important;
+    background: #ffffff !important;
+    border: 1.5px solid #e5e7eb !important;
     border-radius: 14px !important;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
     transition: border-color 0.2s, box-shadow 0.2s !important;
 }
 [data-testid="stChatInput"]:focus-within {
-    border-color: rgba(124, 58, 237, 0.45) !important;
-    box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.08) !important;
+    border-color: #1d4ed8 !important;
+    box-shadow: 0 0 0 3px rgba(29, 78, 216, 0.08) !important;
 }
 [data-testid="stChatInput"] textarea {
-    color: #c8c8e0 !important;
+    color: #111827 !important;
     background: transparent !important;
     font-size: 0.9rem !important;
 }
 [data-testid="stChatInput"] textarea::placeholder {
-    color: #2c2c48 !important;
+    color: #9ca3af !important;
 }
 
 /* Alerts */
 [data-testid="stAlert"] {
     border-radius: 10px !important;
-    font-size: 0.81rem !important;
+    font-size: 0.82rem !important;
 }
 
 /* Spinner */
 [data-testid="stSpinner"] > div {
-    border-top-color: #7c3aed !important;
+    border-top-color: #1d4ed8 !important;
 }
 
-/* Global text */
+/* Global text overrides */
 .stApp p, .stMarkdown p, .stApp li, .stMarkdown li {
-    color: #a0a0c0 !important;
+    color: #374151 !important;
 }
-.stApp h1, .stApp h2, .stApp h3 {
-    color: #d0d0e8 !important;
+.stApp h1, .stApp h2, .stApp h3, .stApp h4 {
+    color: #111827 !important;
 }
-.stApp label {
-    color: #5a5a78 !important;
+.stApp label, .stApp span {
+    color: #6b7280 !important;
 }
+strong, b { color: #111827 !important; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(124, 58, 237, 0.2); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(124, 58, 237, 0.4); }
+::-webkit-scrollbar-track { background: #f4f6f8; }
+::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -578,7 +579,7 @@ with st.sidebar:
 # ── MAIN AREA ─────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="main-header">
-    <div class="main-title">AskMyDocs</div>
+    <div class="main-title">Ask<span class="accent">My</span>Docs</div>
     <div class="main-subtitle">
         Ask anything about your document. Claude searches, calculates, and reasons to find the answer.
     </div>
