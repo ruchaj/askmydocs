@@ -168,7 +168,7 @@ def execute_tool(name: str, tool_input: dict, index: dict, page_images: dict[int
     return f"Unknown tool: {name}"
 
 
-def run_agent(user_question: str, index: dict) -> str:
+def run_agent(user_question: str, index: dict, page_images: dict) -> str:
     messages = [{"role": "user", "content": user_question}]
     while True:
         response = client.messages.create(
@@ -268,6 +268,9 @@ if "messages" not in st.session_state:
 if "doc_name" not in st.session_state:
     st.session_state.doc_name = None
 
+if "page_images" not in st.session_state:
+    st.session_state.page_images = {}
+
 
 # ── FILE UPLOAD ───────────────────────────────────────────────────────────
 # renders the file upload widget — restricts to PDF only
@@ -283,9 +286,14 @@ if uploaded_file and uploaded_file.name != st.session_state.doc_name:
         chunks = load_and_chunk_pdf(uploaded_file)
         # step 2: convert chunks to embeddings and store in our index
         st.session_state.index = build_index(chunks)
-        # step 3: remember the filename to avoid re-processing
+        # step 3: render pages to PNGs — fitz needs a real file path, not a file object
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            tmp.write(uploaded_file.getvalue())
+            tmp_path = tmp.name
+        st.session_state.page_images = render_pdf_pages(tmp_path)
+        # step 4: remember the filename to avoid re-processing
         st.session_state.doc_name = uploaded_file.name
-        # step 4: clear previous chat history when a new doc is loaded
+        # step 5: clear previous chat history when a new doc is loaded
         st.session_state.messages = []
 
     # show success message with chunk count
@@ -323,7 +331,7 @@ if st.session_state.index:
                     # 3. send chunks + question to Claude
                     # 4. return Claude's answer + source chunks
                     answer = run_agent(
-                        question, st.session_state.index
+                        question, st.session_state.index, st.session_state.page_images
                     )
 
                     # display Claude's answer as the assistant's message
