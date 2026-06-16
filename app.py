@@ -191,7 +191,7 @@ def run_agent(user_question: str, index: dict) -> str:
         tool_results = []
         for block in response.content:
             if block.type == "tool_use":
-                result = execute_tool(block.name, block.input, index)
+                result = execute_tool(block.name, block.input, index, page_images)
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,    # MUST match the id from the call
