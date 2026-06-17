@@ -141,19 +141,28 @@ def execute_tool(name: str, tool_input: dict, index: dict, page_images: dict[int
 
 
 SYSTEM_PROMPT = (
-    "You are a document analyst with access to four tools: "
-    "search_documents (semantic search over the uploaded PDF), "
-    "calculate (arithmetic), "
-    "web_search (live internet search — use this whenever the question asks about current events, "
-    "real-time data, recent figures, or anything that may have changed after the document was written), "
-    "and analyze_figure (vision analysis of a specific page — use only for questions about charts, "
-    "graphs, or images that text search cannot answer). "
-    "Always search the document first. If the document does not contain the answer and the question "
-    "involves current or recent information, use web_search."
+    "You are a document analyst with access to four tools:\n"
+    "- search_documents: semantic search over the uploaded PDF. Always try this first for "
+    "questions about the document's own content.\n"
+    "- calculate: arithmetic. Use it instead of doing math yourself.\n"
+    "- web_search: LIVE internet search. You MUST call web_search — never answer from your own "
+    "training knowledge — whenever the question involves any of the following:\n"
+    "    • current events, recent news, or 'latest'/'current'/'today' phrasing;\n"
+    "    • real-time or recent figures (prices, costs, rates, statistics) that change over time;\n"
+    "    • comparing a value in the document to a benchmark, industry average, 'typical' range, "
+    "or what is 'normal' — these require up-to-date external data, not your prior knowledge;\n"
+    "    • anything that may have changed after the document was written.\n"
+    "  If you find yourself about to state an industry figure, average, or benchmark from memory, "
+    "STOP and call web_search instead. A benchmark answered from training data is a failure.\n"
+    "- analyze_figure: vision analysis of a specific page. Use only for charts, graphs, or images "
+    "that text search cannot answer.\n"
+    "When you cite a figure obtained from web_search, briefly note that it came from a live search."
 )
 
 
-def run_agent(user_question: str, index: dict, page_images: dict, documents: list = None) -> str:
+def run_agent(user_question: str, index: dict, page_images: dict, documents: list = None):
+    """Returns (answer_text, trace) where trace is a list of human-readable step strings."""
+    trace = []
     page_count = len(page_images)
     documents = documents or []
 
@@ -189,15 +198,38 @@ def run_agent(user_question: str, index: dict, page_images: dict, documents: lis
             tools=tools,
             messages=messages
         )
+
+        # ── Trace every block, including SERVER-side tools (web_search) ──
         for block in response.content:
             if block.type == "text" and block.text.strip():
+                line = f"💭 {block.text.strip()}"
                 print(f"[reasoning] {block.text}")
-            if block.type == "tool_use":
+            elif block.type == "tool_use":
+                line = f"🔧 {block.name}({block.input})"
                 print(f"[tool] {block.name} <- {block.input}")
+            elif block.type == "server_tool_use":
+                # web_search runs server-side and surfaces as server_tool_use
+                line = f"🌐 web_search({block.input.get('query', block.input)})"
+                print(f"[server_tool] {block.name} <- {block.input}")
+            elif block.type == "web_search_tool_result":
+                n = len(block.content) if isinstance(block.content, list) else "?"
+                line = f"🌐 web_search returned {n} results"
+                print(f"[server_tool_result] {n} results")
+            else:
+                continue
+            trace.append(line)
 
+        # Server-side tool loop hit its iteration cap — re-send to resume.
+        if response.stop_reason == "pause_turn":
+            messages.append({"role": "assistant", "content": response.content})
+            continue
+
+        # No client tool requested → we're done (server tools already resolved).
         if response.stop_reason != "tool_use":
-            return "".join(b.text for b in response.content if b.type == "text")
+            answer = "".join(b.text for b in response.content if b.type == "text")
+            return answer, trace
 
+        # Client tools requested — execute them and feed results back.
         messages.append({"role": "assistant", "content": response.content})
         tool_results = []
         for block in response.content:
@@ -611,13 +643,14 @@ strong, b { color: #111827 !important; }
     border-color: #fda4af !important;
 }
 
-/* Floating download icon */
+/* Floating download icon — sits beside the chat input on the right */
 .download-fab {
     position: fixed;
-    right: 1.75rem;
-    bottom: 5.5rem;
-    width: 44px;
-    height: 44px;
+    left: 50%;
+    margin-left: 340px;   /* push to the right edge of the centered content */
+    bottom: 1.65rem;
+    width: 42px;
+    height: 42px;
     background: #ffffff;
     border: 1.5px solid #e5e7eb;
     border-radius: 50%;
@@ -635,6 +668,14 @@ strong, b { color: #111827 !important; }
     transform: translateY(-2px);
     border-color: #1d4ed8;
     color: #1d4ed8;
+}
+/* On narrow screens the centered offset would overflow — pin to the edge */
+@media (max-width: 820px) {
+    .download-fab {
+        left: auto;
+        margin-left: 0;
+        right: 1rem;
+    }
 }
 
 /* Scrollbar */
@@ -838,7 +879,43 @@ if has_docs:
     </div>
     """, unsafe_allow_html=True)
 
-    if st.session_state.messages:
+    for msg in st.session_state.messages:
+        with st.chat_message(msg["role"]):
+            if msg.get("trace"):
+                with st.expander("🔎 Show reasoning steps"):
+                    for step in msg["trace"]:
+                        st.markdown(f"- {step}".replace("$", r"\$"))
+            st.markdown(msg["content"].replace("$", r"\$"))
+
+    question = st.chat_input("Ask a question about your document(s)...")
+
+    if question:
+        st.session_state.messages.append({"role": "user", "content": question})
+        with st.chat_message("user"):
+            st.markdown(question)
+
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                try:
+                    answer, trace = run_agent(
+                        question,
+                        st.session_state.index,
+                        st.session_state.page_images,
+                        documents=st.session_state.documents,
+                    )
+                    if trace:
+                        with st.expander("🔎 Show reasoning steps"):
+                            for step in trace:
+                                st.markdown(f"- {step}".replace("$", r"\$"))
+                    st.markdown(answer.replace("$", r"\$"))
+                    st.session_state.messages.append({
+                        "role": "assistant", "content": answer, "trace": trace,
+                    })
+                except Exception as e:
+                    st.error(f"Error: {e}")
+
+    # Download icon — floats beside the chat input; only once the AI has replied
+    if any(m["role"] == "assistant" for m in st.session_state.messages):
         conv_md = format_conversation_md()
         fname = f"askmydocs_{datetime.date.today().isoformat()}.md"
         # encode the conversation as a data URI so the icon is a real download link
@@ -854,28 +931,3 @@ if has_docs:
             </svg>
         </a>
         """, unsafe_allow_html=True)
-
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"].replace("$", r"\$"))
-
-    question = st.chat_input("Ask a question about your document(s)...")
-
-    if question:
-        st.session_state.messages.append({"role": "user", "content": question})
-        with st.chat_message("user"):
-            st.markdown(question)
-
-        with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                try:
-                    answer = run_agent(
-                        question,
-                        st.session_state.index,
-                        st.session_state.page_images,
-                        documents=st.session_state.documents,
-                    )
-                    st.markdown(answer.replace("$", r"\$"))
-                    st.session_state.messages.append({"role": "assistant", "content": answer})
-                except Exception as e:
-                    st.error(f"Error: {e}")
