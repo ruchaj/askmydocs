@@ -666,7 +666,7 @@ strong, b { color: #111827 !important; }
 [data-testid="stDownloadButton"] button p { font-size: 1.6rem !important; }
 /* Raise the download button so it's flush with the send arrow in the chat box */
 [data-testid="stDownloadButton"] { margin-bottom: 6px; }
-[data-testid="stDownloadButton"] button { transform: translateY(6px); }
+[data-testid="stDownloadButton"] button { transform: translateY(3px); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
