@@ -653,7 +653,7 @@ strong, b { color: #111827 !important; }
     border: 1.5px solid #e5e7eb !important;
     color: #1d4ed8 !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
-    display: static !important;
+    display: flex !important;
     align-items: center !important;
     justify-content: center !important;
     transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s !important;
