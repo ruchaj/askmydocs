@@ -643,14 +643,15 @@ strong, b { color: #111827 !important; }
     border-color: #fda4af !important;
 }
 
-/* Floating download icon — sits beside the chat input on the right */
+/* Floating download icon — sits beside the chat input on the right,
+   vertically centered with it and stacked ABOVE Streamlit's bottom bar */
 .download-fab {
     position: fixed;
     left: 50%;
-    margin-left: 340px;   /* push to the right edge of the centered content */
-    bottom: 1.65rem;
-    width: 42px;
-    height: 42px;
+    margin-left: 348px;   /* push just past the right edge of the centered content */
+    bottom: 1.4rem;       /* aligns with the chat input's vertical center */
+    width: 40px;
+    height: 40px;
     background: #ffffff;
     border: 1.5px solid #e5e7eb;
     border-radius: 50%;
@@ -658,7 +659,7 @@ strong, b { color: #111827 !important; }
     align-items: center;
     justify-content: center;
     box-shadow: 0 2px 10px rgba(0,0,0,0.10);
-    z-index: 999;
+    z-index: 1000000;     /* above [data-testid="stBottom"] so it isn't covered */
     text-decoration: none !important;
     color: #6b7280;
     transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
@@ -669,12 +670,13 @@ strong, b { color: #111827 !important; }
     border-color: #1d4ed8;
     color: #1d4ed8;
 }
-/* On narrow screens the centered offset would overflow — pin to the edge */
+/* On narrow / mobile screens the centered offset would overflow — pin to the edge */
 @media (max-width: 820px) {
     .download-fab {
         left: auto;
         margin-left: 0;
-        right: 1rem;
+        right: 0.9rem;
+        bottom: 1.4rem;
     }
 }
 
