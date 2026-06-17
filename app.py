@@ -646,7 +646,7 @@ strong, b { color: #111827 !important; }
 [data-testid="stDownloadButton"] button {
     width: 45px;
     height: 45px;
-    min-height: 45px;
+    min-height: 30px;
     padding: 0 !important;
     border-radius: 50% !important;
     background: #ffffff !important;
@@ -656,7 +656,6 @@ strong, b { color: #111827 !important; }
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    transform: translateY(6px);
     transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s !important;
 }
 [data-testid="stDownloadButton"] button:hover {
