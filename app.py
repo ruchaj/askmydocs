@@ -656,7 +656,7 @@ strong, b { color: #111827 !important; }
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    margin-top: 6px;
+    transform: translateY(6px);
     transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s !important;
 }
 [data-testid="stDownloadButton"] button:hover {
