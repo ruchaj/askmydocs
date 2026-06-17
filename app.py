@@ -644,16 +644,16 @@ strong, b { color: #111827 !important; }
 
 /* Inline download icon button — sits in a column beside the chat input */
 [data-testid="stDownloadButton"] button {
-    width: 60px;
-    height: 60px;
-    min-height: 60px;
+    width: 45px;
+    height: 45px;
+    min-height: 45px;
     padding: 0 !important;
     border-radius: 50% !important;
     background: #ffffff !important;
     border: 1.5px solid #e5e7eb !important;
     color: #1d4ed8 !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
-    display: flex !important;
+    display: static !important;
     align-items: center !important;
     justify-content: center !important;
     transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s !important;
