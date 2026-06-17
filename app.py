@@ -644,16 +644,15 @@ strong, b { color: #111827 !important; }
 
 /* Inline download icon button — sits in a column beside the chat input */
 [data-testid="stDownloadButton"] button {
-    width: 46px;
-    height: 46px;
-    min-height: 46px;
+    width: 60px;
+    height: 60px;
+    min-height: 60px;
     padding: 0 !important;
     border-radius: 50% !important;
     background: #ffffff !important;
     border: 1.5px solid #e5e7eb !important;
     color: #1d4ed8 !important;
     box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
-    font-size: 1.1rem !important;
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
@@ -662,9 +661,12 @@ strong, b { color: #111827 !important; }
 [data-testid="stDownloadButton"] button:hover {
     border-color: #1d4ed8 !important;
     box-shadow: 0 3px 12px rgba(0,0,0,0.12) !important;
-    transform: translateY(-1px);
+    transform: translateY(-7px);
 }
-[data-testid="stDownloadButton"] button p { font-size: 1.2rem !important; }
+[data-testid="stDownloadButton"] button p { font-size: 1.6rem !important; }
+/* Raise the download button so it's flush with the send arrow in the chat box */
+[data-testid="stDownloadButton"] { margin-bottom: 6px; }
+[data-testid="stDownloadButton"] button { transform: translateY(-6px); }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -877,7 +879,7 @@ if has_docs:
 
     # Chat input and the download icon share one row so they stay aligned
     has_reply = any(m["role"] == "assistant" for m in st.session_state.messages)
-    col_input, col_dl = st.columns([12, 1], vertical_alignment="bottom")
+    col_input, col_dl = st.columns([9, 1], vertical_alignment="bottom")
     with col_input:
         question = st.chat_input("Ask a question about your document(s)...")
     with col_dl:
