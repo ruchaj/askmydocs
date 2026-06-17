@@ -4,7 +4,6 @@ import os
 import base64
 import tempfile
 import datetime
-import urllib.parse
 import numpy as np
 from pypdf import PdfReader
 from sentence_transformers import SentenceTransformer
@@ -643,42 +642,29 @@ strong, b { color: #111827 !important; }
     border-color: #fda4af !important;
 }
 
-/* Floating download icon — sits beside the chat input on the right,
-   vertically centered with it and stacked ABOVE Streamlit's bottom bar */
-.download-fab {
-    position: fixed;
-    left: 50%;
-    margin-left: 348px;   /* push just past the right edge of the centered content */
-    bottom: 1.4rem;       /* aligns with the chat input's vertical center */
-    width: 40px;
-    height: 40px;
-    background: #ffffff;
-    border: 1.5px solid #e5e7eb;
-    border-radius: 50%;
+/* Inline download icon button — sits in a column beside the chat input */
+[data-testid="stDownloadButton"] button {
+    width: 46px;
+    height: 46px;
+    min-height: 46px;
+    padding: 0 !important;
+    border-radius: 50% !important;
+    background: #ffffff !important;
+    border: 1.5px solid #e5e7eb !important;
+    color: #1d4ed8 !important;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.06) !important;
+    font-size: 1.1rem !important;
     display: flex !important;
-    align-items: center;
-    justify-content: center;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.10);
-    z-index: 1000000;     /* above [data-testid="stBottom"] so it isn't covered */
-    text-decoration: none !important;
-    color: #6b7280;
-    transition: box-shadow 0.2s ease, transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    align-items: center !important;
+    justify-content: center !important;
+    transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s !important;
 }
-.download-fab:hover {
-    box-shadow: 0 4px 18px rgba(0,0,0,0.14);
-    transform: translateY(-2px);
-    border-color: #1d4ed8;
-    color: #1d4ed8;
+[data-testid="stDownloadButton"] button:hover {
+    border-color: #1d4ed8 !important;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.12) !important;
+    transform: translateY(-1px);
 }
-/* On narrow / mobile screens the centered offset would overflow — pin to the edge */
-@media (max-width: 820px) {
-    .download-fab {
-        left: auto;
-        margin-left: 0;
-        right: 0.9rem;
-        bottom: 1.4rem;
-    }
-}
+[data-testid="stDownloadButton"] button p { font-size: 1.2rem !important; }
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 5px; height: 5px; }
@@ -889,7 +875,21 @@ if has_docs:
                         st.markdown(f"- {step}".replace("$", r"\$"))
             st.markdown(msg["content"].replace("$", r"\$"))
 
-    question = st.chat_input("Ask a question about your document(s)...")
+    # Chat input and the download icon share one row so they stay aligned
+    has_reply = any(m["role"] == "assistant" for m in st.session_state.messages)
+    col_input, col_dl = st.columns([12, 1], vertical_alignment="bottom")
+    with col_input:
+        question = st.chat_input("Ask a question about your document(s)...")
+    with col_dl:
+        if has_reply:
+            st.download_button(
+                "⬇",
+                data=format_conversation_md(),
+                file_name=f"askmydocs_{datetime.date.today().isoformat()}.md",
+                mime="text/markdown",
+                help="Download conversation",
+                key="download_conv",
+            )
 
     if question:
         st.session_state.messages.append({"role": "user", "content": question})
@@ -915,21 +915,3 @@ if has_docs:
                     })
                 except Exception as e:
                     st.error(f"Error: {e}")
-
-    # Download icon — floats beside the chat input; only once the AI has replied
-    if any(m["role"] == "assistant" for m in st.session_state.messages):
-        conv_md = format_conversation_md()
-        fname = f"askmydocs_{datetime.date.today().isoformat()}.md"
-        # encode the conversation as a data URI so the icon is a real download link
-        data_uri = "data:text/markdown;charset=utf-8," + urllib.parse.quote(conv_md)
-        st.markdown(f"""
-        <a class="download-fab" href="{data_uri}" download="{fname}"
-           title="Download conversation">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"
-                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
-                <polyline points="7 10 12 15 17 10"></polyline>
-                <line x1="12" y1="15" x2="12" y2="3"></line>
-            </svg>
-        </a>
-        """, unsafe_allow_html=True)
