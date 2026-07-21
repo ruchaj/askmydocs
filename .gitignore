@@ -2,3 +2,6 @@
 __pycache__/
 *.pyc
 .DS_Store
+
+# Generated eval artifacts (recreate with: python make_test_pdfs.py)
+test_pdfs/
